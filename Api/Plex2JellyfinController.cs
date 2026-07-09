@@ -7,12 +7,12 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
-namespace JellyWatch.Plugin.Api;
+namespace Plex2Jellyfin.Plugin.Api;
 
 [ApiController]
-[Route("jellywatch")]
+[Route("plex2jellyfin")]
 [Authorize]
-public class JellyWatchController : ControllerBase
+public class Plex2JellyfinController : ControllerBase
 {
     private static readonly object PauseStateLock = new();
     private static DateTime? _scanPausedUntilUtc;
@@ -20,12 +20,12 @@ public class JellyWatchController : ControllerBase
 
     private readonly ILibraryManager _libraryManager;
     private readonly ISessionManager _sessionManager;
-    private readonly ILogger<JellyWatchController> _logger;
+    private readonly ILogger<Plex2JellyfinController> _logger;
 
-    public JellyWatchController(
+    public Plex2JellyfinController(
         ILibraryManager libraryManager,
         ISessionManager sessionManager,
-        ILogger<JellyWatchController> logger)
+        ILogger<Plex2JellyfinController> logger)
     {
         _libraryManager = libraryManager;
         _sessionManager = sessionManager;
@@ -148,14 +148,14 @@ public class JellyWatchController : ControllerBase
     public IActionResult GetStatus()
     {
         var pauseState = GetPauseState();
-        var config = JellyWatchPlugin.Instance?.Configuration;
+        var config = Plex2JellyfinPlugin.Instance?.Configuration;
 
         return Ok(new
         {
-            PluginVersion = typeof(JellyWatchPlugin).Assembly.GetName().Version?.ToString() ?? "unknown",
+            PluginVersion = typeof(Plex2JellyfinPlugin).Assembly.GetName().Version?.ToString() ?? "unknown",
             EndpointsEnabled = config?.EnableCustomEndpoints ?? true,
             EventForwardingEnabled = config?.EnableEventForwarding ?? false,
-            JellyWatchUrl = config?.JellyWatchUrl,
+            Plex2JellyfinUrl = config?.Plex2JellyfinUrl,
             ScanningPaused = pauseState.IsPaused,
             ScanPauseUntilUtc = pauseState.PauseUntilUtc?.ToString("O"),
             ScanPauseReason = pauseState.Reason,
@@ -263,7 +263,7 @@ public class JellyWatchController : ControllerBase
         }
 
         await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None);
-        _logger.LogInformation("Scan triggered for library {LibraryName} by JellyWatch", folder.Name);
+        _logger.LogInformation("Scan triggered for library {LibraryName} by Plex2Jellyfin", folder.Name);
 
         return Accepted(new { Message = "Scan started", LibraryName = folder.Name });
     }
