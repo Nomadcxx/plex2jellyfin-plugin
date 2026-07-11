@@ -1,0 +1,51 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build at the tagged commit
+        run: |
+          git checkout "${GITHUB_REF_NAME}"
+          ./build.sh
+
+      - name: Create GitHub release with the zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            "artifacts/plex2jellyfin_${VERSION}.zip" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Install through a Jellyfin plugin repository - see README."
+
+      - name: Update the repo manifest on main
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          URL="https://github.com/Nomadcxx/plex2jellyfin-plugin/releases/download/${GITHUB_REF_NAME}/plex2jellyfin_${VERSION}.zip"
+          CHANGELOG="$(git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}")"
+          git checkout main
+          python3 scripts/update-manifest.py "${VERSION}" \
+            "artifacts/plex2jellyfin_${VERSION}.zip" "${URL}" \
+            "${CHANGELOG:-Release ${VERSION}}"
+          git config user.name "Nomadcxx"
+          git config user.email "noovie@gmail.com"
+          git add manifest.json
+          git commit -m "release: manifest entry for ${GITHUB_REF_NAME}"
+          git push origin main

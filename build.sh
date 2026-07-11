@@ -25,13 +25,9 @@ BUILD_DIR="$PROJECT_DIR/bin/Release/$TARGET_FRAMEWORK"
 
 mkdir -p "$OUTPUT_DIR" "$PACKAGE_DIR"
 
-# Ensure manifest is present in build output for packaging.
-cp -f "$PROJECT_DIR/manifest.json" "$BUILD_DIR/manifest.json"
-
 required_files=(
     "Plex2Jellyfin.Plugin.dll"
     "Plex2Jellyfin.Plugin.pdb"
-    "manifest.json"
 )
 
 for file in "${required_files[@]}"; do
@@ -42,27 +38,12 @@ for file in "${required_files[@]}"; do
     cp -f "$BUILD_DIR/$file" "$PACKAGE_DIR/$file"
 done
 
-DLL_PATH="$PACKAGE_DIR/Plex2Jellyfin.Plugin.dll"
-CHECKSUM=$(md5sum "$DLL_PATH" | awk '{print $1}')
-python3 - <<PYEOF
-import json
-manifest_path = "$PACKAGE_DIR/manifest.json"
-with open(manifest_path, "r") as f:
-    m = json.load(f)
-m["checksum"] = "$CHECKSUM"
-with open(manifest_path, "w") as f:
-    json.dump(m, f, indent=2)
-    f.write("\n")
-PYEOF
-echo "Checksum injected: $CHECKSUM"
-
 rm -f "$OUTPUT_DIR/$PLUGIN_NAME"
 (
     cd "$PACKAGE_DIR"
     zip -r "$OUTPUT_DIR/$PLUGIN_NAME" \
         "Plex2Jellyfin.Plugin.dll" \
-        "Plex2Jellyfin.Plugin.pdb" \
-        "manifest.json"
+        "Plex2Jellyfin.Plugin.pdb"
 )
 
 popd >/dev/null

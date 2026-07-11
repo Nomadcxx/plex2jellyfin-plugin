@@ -1,12 +1,12 @@
-{
-  "category": "General",
-  "changelog": "Fix MissingMethodException crash on Jellyfin 10.11.x - use IMediaSourceManager for media streams",
-  "description": "Companion plugin for Plex2Jellyfin media organizer - provides custom endpoints and event forwarding",
-  "guid": "f4eda3a1-c062-49b3-a958-7cf9ca80c269",
-  "name": "Plex2Jellyfin",
-  "overview": "Custom Jellyfin plugin that provides richer webhooks and API endpoints for the Plex2Jellyfin media organizer",
-  "owner": "Nomadcxx",
-  "targetAbi": "10.11.0.0",
-  "version": "1.2.0",
-  "checksum": ""
-}
+[
+  {
+    "guid": "f4eda3a1-c062-49b3-a958-7cf9ca80c269",
+    "name": "Plex2Jellyfin",
+    "description": "Companion plugin for the Plex2Jellyfin media organizer - event forwarding and custom endpoints",
+    "overview": "Forwards item and playback events to plex2jellyfin and exposes helper endpoints",
+    "owner": "Nomadcxx",
+    "category": "General",
+    "imageUrl": "",
+    "versions": []
+  }
+]

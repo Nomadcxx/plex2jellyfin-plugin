@@ -12,36 +12,29 @@ It provides:
   plugin targets `net9.0` — it will not load on 10.10 or older)
 - .NET SDK: `9.0+`
 
-## Build
+## Install
 
-From repo root:
+### From the plugin repository (recommended)
 
-```bash
-./plugin/build.sh
-```
+1. Jellyfin Dashboard → Plugins → Repositories → **+** and add:
+   `https://raw.githubusercontent.com/Nomadcxx/plex2jellyfin-plugin/main/manifest.json`
+2. Catalog → **Plex2Jellyfin** → Install, then restart Jellyfin.
 
-Or from `plugin/`:
+The plex2jellyfin setup wizard can do all of this for you (including
+configuration) - run `plex2jellyfin setup` or use the web UI.
+
+### Manual build (development)
+
+1. Build artifact:
 
 ```bash
 ./build.sh
 ```
 
-Build output:
-- `plugin/artifacts/plex2jellyfin_1.0.0.zip`
-- `plugin/artifacts/package/manifest.json` with computed `checksum`
-
-## Install (Local Testing)
-
-1. Build artifact:
-
-```bash
-./plugin/build.sh
-```
-
 2. Install plugin files into Jellyfin plugin directory:
 
 ```bash
-./plugin/install.sh ~/.local/share/jellyfin/plugins/Plex2Jellyfin
+./install.sh ~/.local/share/jellyfin/plugins/Plex2Jellyfin
 ```
 
 3. Restart Jellyfin:
