@@ -234,6 +234,15 @@ public class EventForwarder : IHostedService, IDisposable
         var config = Plex2JellyfinPlugin.Instance?.Configuration;
         if (config == null) return;
 
+        if (string.IsNullOrWhiteSpace(config.SharedSecret) ||
+            string.IsNullOrWhiteSpace(config.Plex2JellyfinUrl))
+        {
+            _logger.LogDebug(
+                "Skipping {EventType}: plugin is not configured yet (missing daemon URL or shared secret)",
+                eventType);
+            return;
+        }
+
         var url = $"{config.Plex2JellyfinUrl.TrimEnd('/')}/api/v1/webhooks/jellyfin";
         var maxRetries = config.RetryCount;
         var timeout = TimeSpan.FromSeconds(config.RequestTimeoutSeconds);
