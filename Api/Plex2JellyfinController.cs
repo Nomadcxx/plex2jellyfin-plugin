@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using System.Text;
+using System.Text.Json;
 
 namespace Plex2Jellyfin.Plugin.Api;
 
@@ -20,15 +22,18 @@ public class Plex2JellyfinController : ControllerBase
 
     private readonly ILibraryManager _libraryManager;
     private readonly ISessionManager _sessionManager;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<Plex2JellyfinController> _logger;
 
     public Plex2JellyfinController(
         ILibraryManager libraryManager,
         ISessionManager sessionManager,
+        IHttpClientFactory httpClientFactory,
         ILogger<Plex2JellyfinController> logger)
     {
         _libraryManager = libraryManager;
         _sessionManager = sessionManager;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -175,6 +180,57 @@ public class Plex2JellyfinController : ControllerBase
             Timestamp = DateTime.UtcNow.ToString("O"),
             Libraries = _libraryManager.GetVirtualFolders().Count()
         });
+    }
+
+    /// <summary>
+    /// Sends one signed synthetic event to the configured plex2jellyfin
+    /// daemon so an installer can verify the reverse path end to end.
+    /// </summary>
+    [HttpPost("test-webhook")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status412PreconditionFailed)]
+    public async Task<IActionResult> TestWebhook()
+    {
+        var config = Plex2JellyfinPlugin.Instance?.Configuration;
+        if (config == null ||
+            string.IsNullOrWhiteSpace(config.SharedSecret) ||
+            string.IsNullOrWhiteSpace(config.Plex2JellyfinUrl))
+        {
+            return StatusCode(StatusCodes.Status412PreconditionFailed,
+                new { Error = "Plugin is not configured (daemon URL or shared secret missing)" });
+        }
+
+        var url = $"{config.Plex2JellyfinUrl.TrimEnd('/')}/api/v1/webhooks/jellyfin";
+        try
+        {
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var json = JsonSerializer.Serialize(new
+            {
+                NotificationType = "TestNotification",
+                Timestamp = DateTime.UtcNow.ToString("O")
+            });
+            var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("X-Plex2Jellyfin-Webhook-Secret", config.SharedSecret);
+            request.Headers.Add("X-Jellyfin-Event", "TestNotification");
+
+            var response = await client.SendAsync(request);
+            return Ok(new
+            {
+                Sent = true,
+                DaemonUrl = url,
+                DaemonStatusCode = (int)response.StatusCode,
+                Authenticated = response.IsSuccessStatusCode
+            });
+        }
+        catch (Exception ex)
+        {
+            return Ok(new { Sent = false, DaemonUrl = url, Error = ex.Message });
+        }
     }
 
     [HttpGet("item-by-path")]
