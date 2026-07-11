@@ -16,9 +16,9 @@ public class Plex2JellyfinPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <summary>
     /// Unique identifier for this plugin.
-    /// Guid: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+    /// Guid: f4eda3a1-c062-49b3-a958-7cf9ca80c269
     /// </summary>
-    public override Guid Id => Guid.Parse("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+    public override Guid Id => Guid.Parse("f4eda3a1-c062-49b3-a958-7cf9ca80c269");
 
     /// <summary>
     /// Plugin name displayed in Jellyfin dashboard.

@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Plex2Jellyfin.Plugin</AssemblyName>
     <RootNamespace>Plex2Jellyfin.Plugin</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>Nomadcxx</Authors>
     <Description>Companion plugin for Plex2Jellyfin media organizer</Description>
     <PackageProjectUrl>https://github.com/Nomadcxx/plex2jellyfin-plugin</PackageProjectUrl>
