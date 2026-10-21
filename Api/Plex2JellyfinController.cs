@@ -176,7 +176,7 @@ public class Plex2JellyfinController : ControllerBase
         return Ok(new
         {
             Status = "healthy",
-            PluginVersion = "1.0.0",
+            PluginVersion = typeof(Plex2JellyfinPlugin).Assembly.GetName().Version?.ToString() ?? "unknown",
             Timestamp = DateTime.UtcNow.ToString("O"),
             Libraries = _libraryManager.GetVirtualFolders().Count()
         });

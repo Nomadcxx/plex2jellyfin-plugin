@@ -1,22 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Plex2Jellyfin.Plugin</AssemblyName>
     <RootNamespace>Plex2Jellyfin.Plugin</RootNamespace>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Authors>Nomadcxx</Authors>
     <Description>Companion plugin for Plex2Jellyfin media organizer</Description>
     <PackageProjectUrl>https://github.com/Nomadcxx/plex2jellyfin-plugin</PackageProjectUrl>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.6" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.6" />
-    <PackageReference Include="Jellyfin.Data" Version="10.11.6" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0" />
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0" />
+    <PackageReference Include="Jellyfin.Data" Version="12.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>

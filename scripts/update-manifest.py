@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepend a release entry to the repo-level manifest.json.
 
-Usage: update-manifest.py <version> <zip-path> <download-url> <changelog>
+Usage: update-manifest.py <version> <target-abi> <zip-path> <download-url> <changelog>
 Jellyfin verifies the md5 of the downloaded zip against `checksum`.
 """
 import hashlib
@@ -13,7 +13,7 @@ GUID = "f4eda3a1-c062-49b3-a958-7cf9ca80c269"
 
 
 def main() -> None:
-    version, zip_path, url, changelog = sys.argv[1:5]
+    version, target_abi, zip_path, url, changelog = sys.argv[1:6]
     if version.count(".") == 2:
         version += ".0"
 
@@ -28,7 +28,7 @@ def main() -> None:
     versions.insert(0, {
         "version": version,
         "changelog": changelog,
-        "targetAbi": "10.11.0.0",
+        "targetAbi": target_abi,
         "sourceUrl": url,
         "checksum": checksum,
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
