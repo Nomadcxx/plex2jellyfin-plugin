@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 OUTPUT_DIR="$SCRIPT_DIR/artifacts"
 PACKAGE_DIR="$OUTPUT_DIR/package"
-TARGET_FRAMEWORK="net9.0"
+TARGET_FRAMEWORK="net10.0"
 
 pushd "$PROJECT_DIR" >/dev/null
 

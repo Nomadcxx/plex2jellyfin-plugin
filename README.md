@@ -8,9 +8,9 @@ It provides:
 
 ## Compatibility
 
-- Jellyfin: `10.11.x` (targetAbi 10.11.0.0; 10.11 moved to .NET 9, so the
-  plugin targets `net9.0` — it will not load on 10.10 or older)
-- .NET SDK: `9.0+`
+- Jellyfin: `12.x` (targetAbi 12.0.0.0; plugin version 1.3.0 targets `net10.0`)
+- Jellyfin: `10.11.x` remains available through plugin version 1.2.0
+- .NET SDK: `10.0+` to build the current release
 
 ## Install
 
@@ -75,5 +75,6 @@ Required auth header:
   - `dotnet build -c Release plugin/Plex2Jellyfin.Plugin.csproj`
 - If plugin does not load, verify:
   - `manifest.json` exists beside `Plex2Jellyfin.Plugin.dll`
-  - `targetAbi` in manifest matches Jellyfin server ABI (`10.10.0.0`)
+  - `targetAbi` in the plugin repository manifest matches the server ABI
+    (`12.0.0.0` for 1.3.0, `10.11.0.0` for 1.2.0)
 - If webhooks fail with 401, confirm shared secret matches exactly.
