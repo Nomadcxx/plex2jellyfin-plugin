@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Security.Claims;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
@@ -122,6 +123,32 @@ if (ApplyControllerFilter(customEndpointFilter, filterController, nameof(Plex2Je
 {
     throw new InvalidOperationException("Enabling custom endpoints should make custom routes available");
 }
+
+testConfiguration.Plex2JellyfinUrl = "http://daemon.internal:5522";
+var statusController = new Plex2JellyfinController(null!, null!, null!, null!, null!, NullLogger<Plex2JellyfinController>.Instance);
+var statusHttpContext = new DefaultHttpContext();
+statusController.ControllerContext = new ControllerContext { HttpContext = statusHttpContext };
+statusController.PauseScanning(new PauseScanningRequest { DurationMinutes = 5, Reason = "private maintenance detail" });
+var anonymousStatus = (OkObjectResult)statusController.GetStatus();
+using (var anonymousPayload = JsonDocument.Parse(JsonSerializer.Serialize(anonymousStatus.Value)))
+{
+    if (anonymousPayload.RootElement.GetProperty("Plex2JellyfinUrl").ValueKind != JsonValueKind.Null ||
+        anonymousPayload.RootElement.GetProperty("ScanPauseReason").ValueKind != JsonValueKind.Null)
+    {
+        throw new InvalidOperationException("Anonymous status must not expose the daemon URL or pause reason");
+    }
+}
+statusHttpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "operator")], "test"));
+var authenticatedStatus = (OkObjectResult)statusController.GetStatus();
+using (var authenticatedPayload = JsonDocument.Parse(JsonSerializer.Serialize(authenticatedStatus.Value)))
+{
+    if (authenticatedPayload.RootElement.GetProperty("Plex2JellyfinUrl").GetString() != testConfiguration.Plex2JellyfinUrl ||
+        authenticatedPayload.RootElement.GetProperty("ScanPauseReason").GetString() != "private maintenance detail")
+    {
+        throw new InvalidOperationException("Authenticated status should retain the configured URL and pause reason");
+    }
+}
+statusController.ResumeScanning();
 
 typeof(Plex2JellyfinPlugin).GetProperty(nameof(Plex2JellyfinPlugin.Instance))!.SetValue(null, previousPlugin);
 
