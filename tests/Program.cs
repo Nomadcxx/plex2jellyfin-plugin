@@ -93,6 +93,18 @@ if (unidentifiablePayload.RootElement.GetProperty("TotalCount").GetInt32() != 1 
     throw new InvalidOperationException("Unidentifiable items should be limited to the selected library root");
 }
 
+libraryManagerProxy.Root.Children = Enumerable.Range(0, 105)
+    .Select(i => new Movie { Id = Guid.NewGuid(), Name = $"Unidentified {i}", Path = $"/movies/{i}.mkv" })
+    .ToArray();
+var unidentifiablePage = refreshController.GetUnidentifiableItems("movies-id") as OkObjectResult
+    ?? throw new InvalidOperationException("A known library should return its unidentifiable items");
+using var unidentifiablePagePayload = JsonDocument.Parse(JsonSerializer.Serialize(unidentifiablePage.Value));
+if (unidentifiablePagePayload.RootElement.GetProperty("TotalCount").GetInt32() != 105 ||
+    unidentifiablePagePayload.RootElement.GetProperty("Items").GetArrayLength() != 100)
+{
+    throw new InvalidOperationException("Unidentifiable results should report the total and visible limit");
+}
+
 static IScheduledTaskWorker CreateWorker(string id, string key, string name, TaskState state, double progress)
 {
     var task = DispatchProxy.Create<IScheduledTask, ScheduledTaskProxy>();
