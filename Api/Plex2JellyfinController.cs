@@ -168,16 +168,17 @@ public class Plex2JellyfinController : ControllerBase
     {
         var pauseState = GetPauseState();
         var config = Plex2JellyfinPlugin.Instance?.Configuration;
+        var includePrivateDetails = User.Identity?.IsAuthenticated == true;
 
         return Ok(new
         {
             PluginVersion = typeof(Plex2JellyfinPlugin).Assembly.GetName().Version?.ToString() ?? "unknown",
             EndpointsEnabled = config?.EnableCustomEndpoints ?? true,
             EventForwardingEnabled = config?.EnableEventForwarding ?? false,
-            Plex2JellyfinUrl = config?.Plex2JellyfinUrl,
+            Plex2JellyfinUrl = includePrivateDetails ? config?.Plex2JellyfinUrl : null,
             ScanningPaused = pauseState.IsPaused,
             ScanPauseUntilUtc = pauseState.PauseUntilUtc?.ToString("O"),
-            ScanPauseReason = pauseState.Reason,
+            ScanPauseReason = includePrivateDetails ? pauseState.Reason : null,
             Timestamp = DateTime.UtcNow.ToString("O")
         });
     }
