@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
@@ -40,6 +42,11 @@ libraryManagerProxy.Folders =
 [
     new VirtualFolderInfo { Name = "Movies", Locations = ["/movies", "/films"], ItemId = "movies-id" }
 ];
+libraryManagerProxy.Root.Children =
+[
+    new Movie { Id = Guid.Parse("af147cdc-8ed9-4c3e-b7b1-c776c875264b"), Name = "In library", Path = "/movies/In library.mkv" },
+    new Movie { Id = Guid.Parse("3300f506-cb7c-4660-8d03-4d504c5bcbd6"), Name = "Sibling", Path = "/movies-old/Sibling.mkv" }
+];
 var libraryMonitor = DispatchProxy.Create<ILibraryMonitor, LibraryMonitorProxy>();
 var libraryMonitorProxy = (LibraryMonitorProxy)(object)libraryMonitor;
 
@@ -69,6 +76,21 @@ if (refreshController.GetLibraryByPath("/movies/Film.mkv") is not OkObjectResult
     refreshController.GetLibraryByPath("/movies-old/Film.mkv") is not NotFoundObjectResult)
 {
     throw new InvalidOperationException("Library path matching should require a directory boundary");
+}
+
+if (refreshController.GetUnidentifiableItems("stale-library-id") is not NotFoundObjectResult)
+{
+    throw new InvalidOperationException("An unknown library ID should return not found");
+}
+
+var unidentifiableResult = refreshController.GetUnidentifiableItems("movies-id") as OkObjectResult
+    ?? throw new InvalidOperationException("A known library should return its unidentifiable items");
+using var unidentifiablePayload = JsonDocument.Parse(JsonSerializer.Serialize(unidentifiableResult.Value));
+if (unidentifiablePayload.RootElement.GetProperty("TotalCount").GetInt32() != 1 ||
+    unidentifiablePayload.RootElement.GetProperty("Items").GetArrayLength() != 1 ||
+    unidentifiablePayload.RootElement.GetProperty("Items")[0].GetProperty("Path").GetString() != "/movies/In library.mkv")
+{
+    throw new InvalidOperationException("Unidentifiable items should be limited to the selected library root");
 }
 
 static IScheduledTaskWorker CreateWorker(string id, string key, string name, TaskState state, double progress)
@@ -107,6 +129,7 @@ public class TaskManagerProxy : DispatchProxy
 public class LibraryManagerProxy : DispatchProxy
 {
     public List<VirtualFolderInfo> Folders { get; set; } = [];
+    public AggregateFolder Root { get; } = new();
     public bool ValidatedWholeLibrary { get; private set; }
 
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
@@ -114,6 +137,11 @@ public class LibraryManagerProxy : DispatchProxy
         if (targetMethod?.Name == "GetVirtualFolders")
         {
             return Folders;
+        }
+
+        if (targetMethod?.Name == "get_RootFolder")
+        {
+            return Root;
         }
 
         if (targetMethod?.Name == "ValidateMediaLibrary")

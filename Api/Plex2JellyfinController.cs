@@ -352,18 +352,20 @@ public class Plex2JellyfinController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetUnidentifiableItems([FromQuery] string? libraryId = null)
     {
-        var allItems = _libraryManager.RootFolder.GetRecursiveChildren(i => i.ProviderIds.Count == 0);
-
-        IEnumerable<BaseItem> filtered = allItems;
-
+        VirtualFolderInfo? folder = null;
         if (!string.IsNullOrWhiteSpace(libraryId))
         {
-            var folder = _libraryManager.GetVirtualFolders().FirstOrDefault(f => f.ItemId == libraryId);
-            if (folder != null)
+            folder = _libraryManager.GetVirtualFolders().FirstOrDefault(f => f.ItemId == libraryId);
+            if (folder is null)
             {
-                filtered = allItems.Where(i => folder.Locations.Any(l => IsPathWithinRoot(i.Path, l)));
+                return NotFound(new { Error = "Library not found", LibraryId = libraryId });
             }
         }
+
+        var allItems = _libraryManager.RootFolder.GetRecursiveChildren(i => i.ProviderIds.Count == 0);
+        IEnumerable<BaseItem> filtered = folder is null
+            ? allItems
+            : allItems.Where(i => folder.Locations.Any(l => IsPathWithinRoot(i.Path, l)));
 
         var items = filtered
             .Select(item => new
