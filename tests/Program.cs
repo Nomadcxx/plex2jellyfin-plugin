@@ -1,6 +1,9 @@
 using System.Text.Json;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
 using Plex2Jellyfin.Plugin.Api;
 
@@ -12,7 +15,7 @@ var taskManager = DispatchProxy.Create<ITaskManager, TaskManagerProxy>();
     CreateWorker("f5aec2c7-9b45-468b-8d44-04a933c18d62", "GenerateThumbnails", "Generate Thumbnails", TaskState.Running, 25)
 ];
 
-var controller = new Plex2JellyfinController(null!, null!, taskManager, null!, null!);
+var controller = new Plex2JellyfinController(null!, null!, null!, taskManager, null!, null!);
 var result = (OkObjectResult)controller.GetActiveScans();
 using var payload = JsonDocument.Parse(JsonSerializer.Serialize(result.Value));
 var count = payload.RootElement.TryGetProperty("ActiveScanCount", out var pascalCaseCount)
@@ -29,6 +32,37 @@ if (scans.GetArrayLength() != 1 || scans[0].GetProperty("TaskId").GetString() !=
     scans[0].GetProperty("ProgressPercentage").GetDouble() != 80)
 {
     throw new InvalidOperationException("Active scan did not return its task identity and progress");
+}
+
+var libraryManager = DispatchProxy.Create<ILibraryManager, LibraryManagerProxy>();
+var libraryManagerProxy = (LibraryManagerProxy)(object)libraryManager;
+libraryManagerProxy.Folders =
+[
+    new VirtualFolderInfo { Name = "Movies", Locations = ["/movies", "/films"], ItemId = "movies-id" }
+];
+var libraryMonitor = DispatchProxy.Create<ILibraryMonitor, LibraryMonitorProxy>();
+var libraryMonitorProxy = (LibraryMonitorProxy)(object)libraryMonitor;
+
+var refreshController = new Plex2JellyfinController(libraryMonitor, libraryManager, null!, taskManager, null!, NullLogger<Plex2JellyfinController>.Instance);
+var refreshResult = refreshController.RefreshPath(new RefreshPathRequest { Path = "/movies/Film (2026)/Film.mkv" });
+if (refreshResult is not AcceptedResult || libraryManagerProxy.ValidatedWholeLibrary ||
+    !libraryMonitorProxy.ChangedPaths.SequenceEqual(["/movies/Film (2026)/Film.mkv"]))
+{
+    throw new InvalidOperationException("RefreshPath should queue its path without validating the whole library");
+}
+
+var pathScanResult = refreshController.ScanLibrary(new ScanRequest { Path = "/movies/Film (2026)" });
+if (pathScanResult is not AcceptedResult || libraryManagerProxy.ValidatedWholeLibrary ||
+    !libraryMonitorProxy.ChangedPaths.SequenceEqual(["/movies/Film (2026)/Film.mkv", "/movies/Film (2026)"]))
+{
+    throw new InvalidOperationException("A path-scoped scan should queue only the requested path");
+}
+
+var scanResult = refreshController.ScanLibrary(new ScanRequest { LibraryId = "movies-id" });
+if (scanResult is not AcceptedResult || libraryManagerProxy.ValidatedWholeLibrary ||
+    !libraryMonitorProxy.ChangedPaths.SequenceEqual(["/movies/Film (2026)/Film.mkv", "/movies/Film (2026)", "/movies", "/films"]))
+{
+    throw new InvalidOperationException("ScanLibrary should queue only the requested library's roots");
 }
 
 static IScheduledTaskWorker CreateWorker(string id, string key, string name, TaskState state, double progress)
@@ -61,6 +95,47 @@ public class TaskManagerProxy : DispatchProxy
             : targetMethod?.ReturnType.IsValueType == true
                 ? Activator.CreateInstance(targetMethod.ReturnType)
                 : null;
+    }
+}
+
+public class LibraryManagerProxy : DispatchProxy
+{
+    public List<VirtualFolderInfo> Folders { get; set; } = [];
+    public bool ValidatedWholeLibrary { get; private set; }
+
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
+        if (targetMethod?.Name == "GetVirtualFolders")
+        {
+            return Folders;
+        }
+
+        if (targetMethod?.Name == "ValidateMediaLibrary")
+        {
+            ValidatedWholeLibrary = true;
+            return Task.CompletedTask;
+        }
+
+        return targetMethod?.ReturnType == typeof(void)
+            ? null
+            : targetMethod?.ReturnType.IsValueType == true
+                ? Activator.CreateInstance(targetMethod.ReturnType)
+                : null;
+    }
+}
+
+public class LibraryMonitorProxy : DispatchProxy
+{
+    public List<string> ChangedPaths { get; } = [];
+
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
+        if (targetMethod?.Name == "ReportFileSystemChanged")
+        {
+            ChangedPaths.Add((string)args![0]!);
+        }
+
+        return null;
     }
 }
 

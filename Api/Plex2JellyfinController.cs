@@ -22,18 +22,21 @@ public class Plex2JellyfinController : ControllerBase
     private static string? _scanPauseReason;
 
     private readonly ILibraryManager _libraryManager;
+    private readonly ILibraryMonitor _libraryMonitor;
     private readonly ISessionManager _sessionManager;
     private readonly ITaskManager _taskManager;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<Plex2JellyfinController> _logger;
 
     public Plex2JellyfinController(
+        ILibraryMonitor libraryMonitor,
         ILibraryManager libraryManager,
         ISessionManager sessionManager,
         ITaskManager taskManager,
         IHttpClientFactory httpClientFactory,
         ILogger<Plex2JellyfinController> logger)
     {
+        _libraryMonitor = libraryMonitor;
         _libraryManager = libraryManager;
         _sessionManager = sessionManager;
         _taskManager = taskManager;
@@ -46,7 +49,7 @@ public class Plex2JellyfinController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> RefreshPath([FromBody] RefreshPathRequest request)
+    public IActionResult RefreshPath([FromBody] RefreshPathRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.Path))
         {
@@ -69,7 +72,7 @@ public class Plex2JellyfinController : ControllerBase
             return NotFound(new { Error = "Library not found for path", Path = request.Path });
         }
 
-        await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None);
+        _libraryMonitor.ReportFileSystemChanged(request.Path);
         _logger.LogInformation("Refresh triggered for path {Path} in library {LibraryName}", request.Path, folder.Name);
 
         return Accepted(new
@@ -310,7 +313,7 @@ public class Plex2JellyfinController : ControllerBase
     [HttpPost("scan-library")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ScanLibrary([FromBody] ScanRequest request)
+    public IActionResult ScanLibrary([FromBody] ScanRequest request)
     {
         if (GetPauseState().IsPaused)
         {
@@ -332,7 +335,14 @@ public class Plex2JellyfinController : ControllerBase
             return NotFound(new { Error = "Library not found" });
         }
 
-        await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None);
+        IEnumerable<string> paths = string.IsNullOrWhiteSpace(request.LibraryId)
+            ? [request.Path!]
+            : folder.Locations;
+        foreach (var path in paths)
+        {
+            _libraryMonitor.ReportFileSystemChanged(path);
+        }
+
         _logger.LogInformation("Scan triggered for library {LibraryName} by Plex2Jellyfin", folder.Name);
 
         return Accepted(new { Message = "Scan started", LibraryName = folder.Name });
