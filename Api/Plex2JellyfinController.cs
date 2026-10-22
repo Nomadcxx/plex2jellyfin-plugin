@@ -367,6 +367,7 @@ public class Plex2JellyfinController : ControllerBase
             ? allItems
             : allItems.Where(i => folder.Locations.Any(l => IsPathWithinRoot(i.Path, l)));
 
+        var totalCount = filtered.Count();
         var items = filtered
             .Select(item => new
             {
@@ -381,7 +382,7 @@ public class Plex2JellyfinController : ControllerBase
 
         return Ok(new
         {
-            TotalCount = items.Count,
+            TotalCount = totalCount,
             Items = items
         });
     }
