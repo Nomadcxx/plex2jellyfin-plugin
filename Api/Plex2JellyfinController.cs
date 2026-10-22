@@ -7,12 +7,15 @@ using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Text.Json;
 
 namespace Plex2Jellyfin.Plugin.Api;
 
+[CustomEndpointsEnabled]
 [ApiController]
 [Route("plex2jellyfin")]
 [Authorize]
@@ -159,6 +162,7 @@ public class Plex2JellyfinController : ControllerBase
 
     [HttpGet("status")]
     [AllowAnonymous]
+    [AvailableWhenCustomEndpointsDisabled]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetStatus()
     {
@@ -180,6 +184,7 @@ public class Plex2JellyfinController : ControllerBase
 
     [HttpGet("health")]
     [AllowAnonymous]
+    [AvailableWhenCustomEndpointsDisabled]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult Health()
     {
@@ -503,4 +508,27 @@ public class PauseScanningRequest
 {
     public int DurationMinutes { get; set; } = 15;
     public string? Reason { get; set; }
+}
+
+[AttributeUsage(AttributeTargets.Class)]
+internal sealed class CustomEndpointsEnabledAttribute : ActionFilterAttribute
+{
+    public override void OnActionExecuting(ActionExecutingContext context)
+    {
+        if (context.ActionDescriptor is ControllerActionDescriptor action &&
+            action.MethodInfo.IsDefined(typeof(AvailableWhenCustomEndpointsDisabledAttribute), inherit: true))
+        {
+            return;
+        }
+
+        if (Plex2JellyfinPlugin.Instance?.Configuration.EnableCustomEndpoints == false)
+        {
+            context.Result = new NotFoundResult();
+        }
+    }
+}
+
+[AttributeUsage(AttributeTargets.Method)]
+internal sealed class AvailableWhenCustomEndpointsDisabledAttribute : Attribute
+{
 }
