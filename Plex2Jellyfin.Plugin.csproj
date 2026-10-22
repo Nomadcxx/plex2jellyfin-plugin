@@ -22,6 +22,7 @@
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
     <EmbeddedResource Include="Configuration/configPage.html" />
+    <Compile Remove="checks/**/*.cs" />
     <None Update="manifest.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>

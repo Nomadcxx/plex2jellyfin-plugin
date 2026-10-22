@@ -22,6 +22,9 @@ public class EventForwarder : IHostedService, IDisposable
     private readonly ILogger<EventForwarder> _logger;
 
     private static DateTime _lastProgressEventSent = DateTime.MinValue;
+    private volatile ForwardEventQueue? _eventQueue;
+    private CancellationTokenSource? _workerCancellation;
+    private Task[] _workers = [];
     private bool _disposed;
 
     public EventForwarder(
@@ -49,6 +52,14 @@ public class EventForwarder : IHostedService, IDisposable
             return Task.CompletedTask;
         }
 
+        var queue = new ForwardEventQueue();
+        var workerCancellation = new CancellationTokenSource();
+        _eventQueue = queue;
+        _workerCancellation = workerCancellation;
+        _workers = Enumerable.Range(0, ForwardEventQueue.WorkerCount)
+            .Select(worker => ForwardWorkerAsync(queue, worker, workerCancellation.Token))
+            .ToArray();
+
         if (config.ForwardLibraryEvents)
         {
             _libraryManager.ItemAdded += OnItemAdded;
@@ -69,7 +80,7 @@ public class EventForwarder : IHostedService, IDisposable
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded -= OnItemAdded;
         _libraryManager.ItemRemoved -= OnItemRemoved;
@@ -78,7 +89,38 @@ public class EventForwarder : IHostedService, IDisposable
         _sessionManager.PlaybackStopped -= OnPlaybackStopped;
         _sessionManager.PlaybackProgress -= OnPlaybackProgress;
         _taskManager.TaskCompleted -= OnTaskCompleted;
-        return Task.CompletedTask;
+
+        var queue = _eventQueue;
+        if (queue == null)
+        {
+            return;
+        }
+
+        queue.Complete();
+        try
+        {
+            await Task.WhenAll(_workers).WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _workerCancellation?.Cancel();
+            await Task.WhenAll(_workers);
+            var pending = queue.PendingCount;
+            if (pending > 0)
+            {
+                _logger.LogWarning(
+                    "Stopped event forwarding with {PendingCount} events still queued",
+                    pending);
+            }
+        }
+        finally
+        {
+            _eventQueue = null;
+            queue.Dispose();
+            _workerCancellation?.Dispose();
+            _workerCancellation = null;
+            _workers = [];
+        }
     }
 
     public void Dispose()
@@ -89,48 +131,64 @@ public class EventForwarder : IHostedService, IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private async void OnItemAdded(object? sender, ItemChangeEventArgs e)
+    private void OnItemAdded(object? sender, ItemChangeEventArgs e)
     {
         if (!ShouldForwardEvent()) return;
-        await ForwardEvent("ItemAdded", BuildItemPayload(e.Item));
+        EnqueueEvent(ForwardEventQueue.ItemAddedEvent, BuildItemPayload(e.Item), e.Item);
     }
 
-    private async void OnItemRemoved(object? sender, ItemChangeEventArgs e)
+    private void OnItemRemoved(object? sender, ItemChangeEventArgs e)
     {
         if (!ShouldForwardEvent()) return;
-        await ForwardEvent("ItemRemoved", BuildItemPayload(e.Item));
+        EnqueueEvent(ForwardEventQueue.ItemRemovedEvent, BuildItemPayload(e.Item), e.Item);
     }
 
-    private async void OnItemUpdated(object? sender, ItemChangeEventArgs e)
+    private void OnItemUpdated(object? sender, ItemChangeEventArgs e)
     {
         if (!ShouldForwardEvent()) return;
-        await ForwardEvent("ItemUpdated", BuildItemPayload(e.Item));
+        EnqueueEvent(ForwardEventQueue.ItemUpdatedEvent, BuildItemPayload(e.Item), e.Item);
     }
 
-    private async void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
+    private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
     {
         if (!ShouldForwardEvent()) return;
-        await ForwardEvent("PlaybackStart", BuildPlaybackPayload(e));
+        EnqueueEvent("PlaybackStart", BuildPlaybackPayload(e), e.Item);
     }
 
-    private async void OnPlaybackStopped(object? sender, PlaybackProgressEventArgs e)
+    private void OnPlaybackStopped(object? sender, PlaybackProgressEventArgs e)
     {
         if (!ShouldForwardEvent()) return;
-        await ForwardEvent("PlaybackStopped", BuildPlaybackPayload(e));
+        EnqueueEvent("PlaybackStopped", BuildPlaybackPayload(e), e.Item);
     }
 
-    private async void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
+    private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
     {
         if ((DateTime.UtcNow - _lastProgressEventSent).TotalSeconds < 30) return;
         if (!ShouldForwardEvent()) return;
         _lastProgressEventSent = DateTime.UtcNow;
-        await ForwardEvent("PlaybackProgress", BuildPlaybackPayload(e));
+        EnqueueEvent("PlaybackProgress", BuildPlaybackPayload(e), e.Item);
     }
 
-    private async void OnTaskCompleted(object? sender, TaskCompletionEventArgs e)
+    private void OnTaskCompleted(object? sender, TaskCompletionEventArgs e)
     {
         if (!ShouldForwardEvent()) return;
-        await ForwardEvent("TaskCompleted", BuildTaskCompletedPayload(e));
+        EnqueueEvent("TaskCompleted", BuildTaskCompletedPayload(e));
+    }
+
+    private void EnqueueEvent(string eventType, object payload, BaseItem? item = null)
+    {
+        if (!ShouldForwardEvent()) return;
+
+        var queue = _eventQueue;
+        if (queue == null) return;
+
+        var forwarded = new ForwardedEvent(eventType, payload, item?.Id.ToString(), item?.Path);
+        if (!queue.Enqueue(forwarded))
+        {
+            _logger.LogWarning(
+                "Dropping {EventType} event while event forwarding is stopping for item {ItemId} at {ItemPath}",
+                eventType, forwarded.ItemId, forwarded.ItemPath);
+        }
     }
 
     private static bool ShouldForwardEvent()
@@ -229,7 +287,34 @@ public class EventForwarder : IHostedService, IDisposable
         };
     }
 
-    private async Task ForwardEvent(string eventType, object payload)
+    private async Task ForwardWorkerAsync(ForwardEventQueue queue, int workerIndex, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await queue.ReadAsync(workerIndex, cancellationToken) is { } item)
+            {
+                try
+                {
+                    await ForwardEvent(item, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Unhandled error forwarding {EventType} for item {ItemId} at {ItemPath}",
+                        item.EventType, item.ItemId, item.ItemPath);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task ForwardEvent(ForwardedEvent forwarded, CancellationToken cancellationToken)
     {
         var config = Plex2JellyfinPlugin.Instance?.Configuration;
         if (config == null) return;
@@ -239,64 +324,79 @@ public class EventForwarder : IHostedService, IDisposable
         {
             _logger.LogDebug(
                 "Skipping {EventType}: plugin is not configured yet (missing daemon URL or shared secret)",
-                eventType);
+                forwarded.EventType);
             return;
         }
 
         var url = $"{config.Plex2JellyfinUrl.TrimEnd('/')}/api/v1/webhooks/jellyfin";
-        var maxRetries = config.RetryCount;
+        var maxRetries = Math.Max(1, config.RetryCount);
         var timeout = TimeSpan.FromSeconds(config.RequestTimeoutSeconds);
 
         var requestPayload = new
         {
-            EventType = eventType,
+            EventType = forwarded.EventType,
             Timestamp = DateTime.UtcNow.ToString("O"),
-            Payload = payload
+            Payload = forwarded.Payload
         };
 
-        for (int attempt = 0; attempt < maxRetries; attempt++)
+        try
         {
-            try
+            for (int attempt = 0; attempt < maxRetries; attempt++)
             {
-                using var client = _httpClientFactory.CreateClient();
-                client.Timeout = timeout;
-
-                var json = JsonSerializer.Serialize(requestPayload, new JsonSerializerOptions
+                try
                 {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                });
+                    using var client = _httpClientFactory.CreateClient();
+                    client.Timeout = timeout;
 
-                var request = new HttpRequestMessage(HttpMethod.Post, url)
+                    var json = JsonSerializer.Serialize(requestPayload, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    });
+
+                    using var request = new HttpRequestMessage(HttpMethod.Post, url)
+                    {
+                        Content = new StringContent(json, Encoding.UTF8, "application/json")
+                    };
+
+                    request.Headers.Add("X-Plex2Jellyfin-Webhook-Secret", config.SharedSecret);
+                    request.Headers.Add("X-Jellyfin-Event", forwarded.EventType);
+
+                    using var response = await client.SendAsync(request, cancellationToken);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        _logger.LogDebug("Forwarded {EventType} event to Plex2Jellyfin", forwarded.EventType);
+                        return;
+                    }
+
+                    _logger.LogWarning("Failed to forward {EventType} event: {StatusCode}",
+                        forwarded.EventType, response.StatusCode);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    Content = new StringContent(json, Encoding.UTF8, "application/json")
-                };
-
-                request.Headers.Add("X-Plex2Jellyfin-Webhook-Secret", config.SharedSecret);
-                request.Headers.Add("X-Jellyfin-Event", eventType);
-
-                var response = await client.SendAsync(request);
-                if (response.IsSuccessStatusCode)
+                    throw;
+                }
+                catch (Exception ex)
                 {
-                    _logger.LogDebug("Forwarded {EventType} event to Plex2Jellyfin", eventType);
-                    return;
+                    _logger.LogWarning(ex, "Error forwarding {EventType} event (attempt {Attempt}/{Max})",
+                        forwarded.EventType, attempt + 1, maxRetries);
                 }
 
-                _logger.LogWarning("Failed to forward {EventType} event: {StatusCode}",
-                    eventType, response.StatusCode);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error forwarding {EventType} event (attempt {Attempt}/{Max})",
-                    eventType, attempt + 1, maxRetries);
-            }
-
-            if (attempt < maxRetries - 1)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+                if (attempt < maxRetries - 1)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), cancellationToken);
+                }
             }
         }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex,
+                "Cancelled {EventType} forwarding for item {ItemId} at {ItemPath}",
+                forwarded.EventType, forwarded.ItemId, forwarded.ItemPath);
+            throw;
+        }
 
-        _logger.LogError("Failed to forward {EventType} event after {MaxRetries} attempts",
-            eventType, maxRetries);
+        _logger.LogError(
+            "Failed to forward {EventType} event after {MaxRetries} attempts for item {ItemId} at {ItemPath}",
+            forwarded.EventType, maxRetries, forwarded.ItemId, forwarded.ItemPath);
     }
 }
