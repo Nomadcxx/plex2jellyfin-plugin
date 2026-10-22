@@ -1,6 +1,7 @@
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -84,6 +85,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpPost("pause-scanning")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult PauseScanning([FromBody] PauseScanningRequest? request)
     {
@@ -109,6 +111,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpPost("resume-scanning")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult ResumeScanning()
     {
@@ -311,6 +314,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpPost("scan-library")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult ScanLibrary([FromBody] ScanRequest request)
