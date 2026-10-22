@@ -65,6 +65,12 @@ if (scanResult is not AcceptedResult || libraryManagerProxy.ValidatedWholeLibrar
     throw new InvalidOperationException("ScanLibrary should queue only the requested library's roots");
 }
 
+if (refreshController.GetLibraryByPath("/movies/Film.mkv") is not OkObjectResult ||
+    refreshController.GetLibraryByPath("/movies-old/Film.mkv") is not NotFoundObjectResult)
+{
+    throw new InvalidOperationException("Library path matching should require a directory boundary");
+}
+
 static IScheduledTaskWorker CreateWorker(string id, string key, string name, TaskState state, double progress)
 {
     var task = DispatchProxy.Create<IScheduledTask, ScheduledTaskProxy>();

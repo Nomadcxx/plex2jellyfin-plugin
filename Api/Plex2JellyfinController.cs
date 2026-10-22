@@ -361,8 +361,7 @@ public class Plex2JellyfinController : ControllerBase
             var folder = _libraryManager.GetVirtualFolders().FirstOrDefault(f => f.ItemId == libraryId);
             if (folder != null)
             {
-                filtered = allItems.Where(i => folder.Locations.Any(l =>
-                    i.Path?.StartsWith(l, StringComparison.OrdinalIgnoreCase) == true));
+                filtered = allItems.Where(i => folder.Locations.Any(l => IsPathWithinRoot(i.Path, l)));
             }
         }
 
@@ -434,7 +433,27 @@ public class Plex2JellyfinController : ControllerBase
     private VirtualFolderInfo? GetFolderByPath(string path)
     {
         return _libraryManager.GetVirtualFolders()
-            .FirstOrDefault(f => f.Locations.Any(l => path.StartsWith(l, StringComparison.OrdinalIgnoreCase)));
+            .FirstOrDefault(f => f.Locations.Any(l => IsPathWithinRoot(path, l)));
+    }
+
+    private static bool IsPathWithinRoot(string? path, string? root)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        try
+        {
+            var relative = Path.GetRelativePath(Path.GetFullPath(root), Path.GetFullPath(path));
+            return relative == "." ||
+                (!Path.IsPathRooted(relative) && relative != ".." &&
+                 !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     private static object BuildItemResponse(BaseItem item)
