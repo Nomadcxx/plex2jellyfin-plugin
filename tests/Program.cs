@@ -1,13 +1,84 @@
 using System.Text.Json;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Mvc;
+using MediaBrowser.Common.Plugins;
 using Microsoft.Extensions.Logging.Abstractions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
+using Plex2Jellyfin.Plugin;
 using Plex2Jellyfin.Plugin.Api;
+using Plex2Jellyfin.Plugin.Configuration;
+using Plex2Jellyfin.Plugin.EventHandlers;
+
+var eventPolicy = typeof(EventForwarder).GetMethod(
+    "ShouldForwardEvent",
+    BindingFlags.Static | BindingFlags.NonPublic,
+    binder: null,
+    types: [typeof(PluginConfiguration), typeof(string)],
+    modifiers: null)
+    ?? throw new InvalidOperationException("EventForwarder should expose its event-specific forwarding policy");
+var shouldForward = new Func<PluginConfiguration, string, bool>(
+    (configuration, eventType) => (bool)eventPolicy.Invoke(null, [configuration, eventType])!);
+var policyConfiguration = new PluginConfiguration
+{
+    EnableEventForwarding = true,
+    ForwardLibraryEvents = false,
+    ForwardPlaybackEvents = true
+};
+if (shouldForward(policyConfiguration, "ItemAdded") || !shouldForward(policyConfiguration, "PlaybackStart") ||
+    !shouldForward(policyConfiguration, "TaskCompleted"))
+{
+    throw new InvalidOperationException("Forwarding should honor the current category settings");
+}
+policyConfiguration.ForwardLibraryEvents = true;
+policyConfiguration.ForwardPlaybackEvents = false;
+if (!shouldForward(policyConfiguration, "ItemAdded") || shouldForward(policyConfiguration, "PlaybackStart"))
+{
+    throw new InvalidOperationException("Changing category settings should take effect without restarting");
+}
+policyConfiguration.EnableEventForwarding = false;
+if (shouldForward(policyConfiguration, "TaskCompleted"))
+{
+    throw new InvalidOperationException("The master setting should disable every event category");
+}
+
+var previousPlugin = Plex2JellyfinPlugin.Instance;
+var plugin = (Plex2JellyfinPlugin)RuntimeHelpers.GetUninitializedObject(typeof(Plex2JellyfinPlugin));
+typeof(Plex2JellyfinPlugin).GetProperty(nameof(Plex2JellyfinPlugin.Instance))!.SetValue(null, plugin);
+typeof(BasePlugin<PluginConfiguration>)
+    .GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!
+    .SetValue(plugin, new PluginConfiguration
+    {
+        EnableEventForwarding = true,
+        ForwardLibraryEvents = false,
+        ForwardPlaybackEvents = false
+    });
+
+var eventLibraryManager = DispatchProxy.Create<ILibraryManager, LibraryManagerProxy>();
+var eventLibraryProxy = (LibraryManagerProxy)(object)eventLibraryManager;
+var eventSessionManager = DispatchProxy.Create<ISessionManager, SessionManagerProxy>();
+var eventSessionProxy = (SessionManagerProxy)(object)eventSessionManager;
+var eventForwarder = new EventForwarder(
+    eventLibraryManager,
+    eventSessionManager,
+    DispatchProxy.Create<ITaskManager, TaskManagerProxy>(),
+    DispatchProxy.Create<IMediaSourceManager, EmptyProxy>(),
+    DispatchProxy.Create<IHttpClientFactory, EmptyProxy>(),
+    NullLogger<EventForwarder>.Instance);
+await eventForwarder.StartAsync(CancellationToken.None);
+if (eventLibraryProxy.ItemAddedHandler is null || eventLibraryProxy.ItemRemovedHandler is null ||
+    eventLibraryProxy.ItemUpdatedHandler is null || eventSessionProxy.PlaybackStartHandler is null ||
+    eventSessionProxy.PlaybackStoppedHandler is null || eventSessionProxy.PlaybackProgressHandler is null)
+{
+    throw new InvalidOperationException("Event categories should remain subscribed so settings can change at runtime");
+}
+await eventForwarder.StopAsync(CancellationToken.None);
+typeof(Plex2JellyfinPlugin).GetProperty(nameof(Plex2JellyfinPlugin.Instance))!.SetValue(null, previousPlugin);
 
 var taskManager = DispatchProxy.Create<ITaskManager, TaskManagerProxy>();
 ((TaskManagerProxy)(object)taskManager).Tasks =
@@ -143,9 +214,19 @@ public class LibraryManagerProxy : DispatchProxy
     public List<VirtualFolderInfo> Folders { get; set; } = [];
     public AggregateFolder Root { get; } = new();
     public bool ValidatedWholeLibrary { get; private set; }
+    public Delegate? ItemAddedHandler { get; private set; }
+    public Delegate? ItemRemovedHandler { get; private set; }
+    public Delegate? ItemUpdatedHandler { get; private set; }
 
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
+        if (targetMethod?.Name == "add_ItemAdded") ItemAddedHandler = Delegate.Combine(ItemAddedHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "remove_ItemAdded") ItemAddedHandler = Delegate.Remove(ItemAddedHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "add_ItemRemoved") ItemRemovedHandler = Delegate.Combine(ItemRemovedHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "remove_ItemRemoved") ItemRemovedHandler = Delegate.Remove(ItemRemovedHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "add_ItemUpdated") ItemUpdatedHandler = Delegate.Combine(ItemUpdatedHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "remove_ItemUpdated") ItemUpdatedHandler = Delegate.Remove(ItemUpdatedHandler, (Delegate)args![0]!);
+
         if (targetMethod?.Name == "GetVirtualFolders")
         {
             return Folders;
@@ -162,6 +243,41 @@ public class LibraryManagerProxy : DispatchProxy
             return Task.CompletedTask;
         }
 
+        return targetMethod?.ReturnType == typeof(void)
+            ? null
+            : targetMethod?.ReturnType.IsValueType == true
+                ? Activator.CreateInstance(targetMethod.ReturnType)
+                : null;
+    }
+}
+
+public class SessionManagerProxy : DispatchProxy
+{
+    public Delegate? PlaybackStartHandler { get; private set; }
+    public Delegate? PlaybackStoppedHandler { get; private set; }
+    public Delegate? PlaybackProgressHandler { get; private set; }
+
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
+        if (targetMethod?.Name == "add_PlaybackStart") PlaybackStartHandler = Delegate.Combine(PlaybackStartHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "remove_PlaybackStart") PlaybackStartHandler = Delegate.Remove(PlaybackStartHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "add_PlaybackStopped") PlaybackStoppedHandler = Delegate.Combine(PlaybackStoppedHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "remove_PlaybackStopped") PlaybackStoppedHandler = Delegate.Remove(PlaybackStoppedHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "add_PlaybackProgress") PlaybackProgressHandler = Delegate.Combine(PlaybackProgressHandler, (Delegate)args![0]!);
+        if (targetMethod?.Name == "remove_PlaybackProgress") PlaybackProgressHandler = Delegate.Remove(PlaybackProgressHandler, (Delegate)args![0]!);
+
+        return targetMethod?.ReturnType == typeof(void)
+            ? null
+            : targetMethod?.ReturnType.IsValueType == true
+                ? Activator.CreateInstance(targetMethod.ReturnType)
+                : null;
+    }
+}
+
+public class EmptyProxy : DispatchProxy
+{
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
         return targetMethod?.ReturnType == typeof(void)
             ? null
             : targetMethod?.ReturnType.IsValueType == true

@@ -60,19 +60,12 @@ public class EventForwarder : IHostedService, IDisposable
             .Select(worker => ForwardWorkerAsync(queue, worker, workerCancellation.Token))
             .ToArray();
 
-        if (config.ForwardLibraryEvents)
-        {
-            _libraryManager.ItemAdded += OnItemAdded;
-            _libraryManager.ItemRemoved += OnItemRemoved;
-            _libraryManager.ItemUpdated += OnItemUpdated;
-        }
-
-        if (config.ForwardPlaybackEvents)
-        {
-            _sessionManager.PlaybackStart += OnPlaybackStart;
-            _sessionManager.PlaybackStopped += OnPlaybackStopped;
-            _sessionManager.PlaybackProgress += OnPlaybackProgress;
-        }
+        _libraryManager.ItemAdded += OnItemAdded;
+        _libraryManager.ItemRemoved += OnItemRemoved;
+        _libraryManager.ItemUpdated += OnItemUpdated;
+        _sessionManager.PlaybackStart += OnPlaybackStart;
+        _sessionManager.PlaybackStopped += OnPlaybackStopped;
+        _sessionManager.PlaybackProgress += OnPlaybackProgress;
 
         _taskManager.TaskCompleted += OnTaskCompleted;
 
@@ -133,51 +126,51 @@ public class EventForwarder : IHostedService, IDisposable
 
     private void OnItemAdded(object? sender, ItemChangeEventArgs e)
     {
-        if (!ShouldForwardEvent()) return;
+        if (!ShouldForwardEvent(ForwardEventQueue.ItemAddedEvent)) return;
         EnqueueEvent(ForwardEventQueue.ItemAddedEvent, BuildItemPayload(e.Item), e.Item);
     }
 
     private void OnItemRemoved(object? sender, ItemChangeEventArgs e)
     {
-        if (!ShouldForwardEvent()) return;
+        if (!ShouldForwardEvent(ForwardEventQueue.ItemRemovedEvent)) return;
         EnqueueEvent(ForwardEventQueue.ItemRemovedEvent, BuildItemPayload(e.Item), e.Item);
     }
 
     private void OnItemUpdated(object? sender, ItemChangeEventArgs e)
     {
-        if (!ShouldForwardEvent()) return;
+        if (!ShouldForwardEvent(ForwardEventQueue.ItemUpdatedEvent)) return;
         EnqueueEvent(ForwardEventQueue.ItemUpdatedEvent, BuildItemPayload(e.Item), e.Item);
     }
 
     private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
     {
-        if (!ShouldForwardEvent()) return;
+        if (!ShouldForwardEvent("PlaybackStart")) return;
         EnqueueEvent("PlaybackStart", BuildPlaybackPayload(e), e.Item);
     }
 
     private void OnPlaybackStopped(object? sender, PlaybackProgressEventArgs e)
     {
-        if (!ShouldForwardEvent()) return;
+        if (!ShouldForwardEvent("PlaybackStopped")) return;
         EnqueueEvent("PlaybackStopped", BuildPlaybackPayload(e), e.Item);
     }
 
     private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
     {
+        if (!ShouldForwardEvent("PlaybackProgress")) return;
         if ((DateTime.UtcNow - _lastProgressEventSent).TotalSeconds < 30) return;
-        if (!ShouldForwardEvent()) return;
         _lastProgressEventSent = DateTime.UtcNow;
         EnqueueEvent("PlaybackProgress", BuildPlaybackPayload(e), e.Item);
     }
 
     private void OnTaskCompleted(object? sender, TaskCompletionEventArgs e)
     {
-        if (!ShouldForwardEvent()) return;
+        if (!ShouldForwardEvent("TaskCompleted")) return;
         EnqueueEvent("TaskCompleted", BuildTaskCompletedPayload(e));
     }
 
     private void EnqueueEvent(string eventType, object payload, BaseItem? item = null)
     {
-        if (!ShouldForwardEvent()) return;
+        if (!ShouldForwardEvent(eventType)) return;
 
         var queue = _eventQueue;
         if (queue == null) return;
@@ -191,9 +184,25 @@ public class EventForwarder : IHostedService, IDisposable
         }
     }
 
-    private static bool ShouldForwardEvent()
+    private static bool ShouldForwardEvent(string eventType)
     {
-        return Plex2JellyfinPlugin.Instance?.Configuration?.EnableEventForwarding == true;
+        return ShouldForwardEvent(Plex2JellyfinPlugin.Instance?.Configuration, eventType);
+    }
+
+    private static bool ShouldForwardEvent(PluginConfiguration? config, string eventType)
+    {
+        if (config?.EnableEventForwarding != true)
+        {
+            return false;
+        }
+
+        return eventType switch
+        {
+            ForwardEventQueue.ItemAddedEvent or ForwardEventQueue.ItemRemovedEvent or ForwardEventQueue.ItemUpdatedEvent => config.ForwardLibraryEvents,
+            "PlaybackStart" or "PlaybackStopped" or "PlaybackProgress" => config.ForwardPlaybackEvents,
+            "TaskCompleted" => true,
+            _ => false
+        };
     }
 
     private object BuildItemPayload(BaseItem item)
