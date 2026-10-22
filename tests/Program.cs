@@ -1,7 +1,9 @@
 using System.Text.Json;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using MediaBrowser.Common.Plugins;
 using Microsoft.Extensions.Logging.Abstractions;
 using MediaBrowser.Controller.Entities;
@@ -14,6 +16,22 @@ using Plex2Jellyfin.Plugin;
 using Plex2Jellyfin.Plugin.Api;
 using Plex2Jellyfin.Plugin.Configuration;
 using Plex2Jellyfin.Plugin.EventHandlers;
+
+foreach (var actionName in new[]
+{
+    nameof(Plex2JellyfinController.PauseScanning),
+    nameof(Plex2JellyfinController.ResumeScanning),
+    nameof(Plex2JellyfinController.ScanLibrary)
+})
+{
+    var action = typeof(Plex2JellyfinController).GetMethod(actionName)
+        ?? throw new InvalidOperationException($"Missing scan control action {actionName}");
+    var authorization = action.GetCustomAttribute<AuthorizeAttribute>();
+    if (authorization?.Policy != Policies.RequiresElevation)
+    {
+        throw new InvalidOperationException($"{actionName} should require administrator elevation");
+    }
+}
 
 var eventPolicy = typeof(EventForwarder).GetMethod(
     "ShouldForwardEvent",
