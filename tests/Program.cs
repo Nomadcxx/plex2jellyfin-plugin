@@ -3,6 +3,10 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Authorization;
 using MediaBrowser.Common.Plugins;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -96,6 +100,29 @@ if (eventLibraryProxy.ItemAddedHandler is null || eventLibraryProxy.ItemRemovedH
     throw new InvalidOperationException("Event categories should remain subscribed so settings can change at runtime");
 }
 await eventForwarder.StopAsync(CancellationToken.None);
+
+var testConfiguration = (PluginConfiguration)typeof(BasePlugin<PluginConfiguration>)
+    .GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!
+    .GetValue(plugin)!;
+testConfiguration.EnableCustomEndpoints = false;
+var customEndpointFilter = typeof(Plex2JellyfinController)
+    .GetCustomAttributes(inherit: true)
+    .OfType<IActionFilter>()
+    .SingleOrDefault()
+    ?? throw new InvalidOperationException("The controller should gate its custom endpoints");
+var filterController = new Plex2JellyfinController(null!, null!, null!, null!, null!, null!);
+if (ApplyControllerFilter(customEndpointFilter, filterController, nameof(Plex2JellyfinController.GetActiveScans)) is not NotFoundResult ||
+    ApplyControllerFilter(customEndpointFilter, filterController, nameof(Plex2JellyfinController.GetStatus)) is not null ||
+    ApplyControllerFilter(customEndpointFilter, filterController, nameof(Plex2JellyfinController.Health)) is not null)
+{
+    throw new InvalidOperationException("Disabling custom endpoints should hide custom routes and preserve health/status");
+}
+testConfiguration.EnableCustomEndpoints = true;
+if (ApplyControllerFilter(customEndpointFilter, filterController, nameof(Plex2JellyfinController.GetActiveScans)) is not null)
+{
+    throw new InvalidOperationException("Enabling custom endpoints should make custom routes available");
+}
+
 typeof(Plex2JellyfinPlugin).GetProperty(nameof(Plex2JellyfinPlugin.Instance))!.SetValue(null, previousPlugin);
 
 var taskManager = DispatchProxy.Create<ITaskManager, TaskManagerProxy>();
@@ -206,6 +233,25 @@ static IScheduledTaskWorker CreateWorker(string id, string key, string name, Tas
     ((TaskWorkerProxy)(object)worker).TaskState = state;
     ((TaskWorkerProxy)(object)worker).Progress = progress;
     return worker;
+}
+
+static IActionResult? ApplyControllerFilter(IActionFilter filter, ControllerBase controller, string actionName)
+{
+    var method = typeof(Plex2JellyfinController).GetMethod(actionName)
+        ?? throw new InvalidOperationException($"Missing controller action {actionName}");
+    var descriptor = new ControllerActionDescriptor
+    {
+        ActionName = actionName,
+        ControllerTypeInfo = typeof(Plex2JellyfinController).GetTypeInfo(),
+        MethodInfo = method
+    };
+    var context = new ActionExecutingContext(
+        new ActionContext(new DefaultHttpContext(), new RouteData(), descriptor),
+        new List<IFilterMetadata>(),
+        new Dictionary<string, object?>(),
+        controller);
+    filter.OnActionExecuting(context);
+    return context.Result;
 }
 
 public class TaskManagerProxy : DispatchProxy
