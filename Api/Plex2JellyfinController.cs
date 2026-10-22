@@ -258,8 +258,11 @@ public class Plex2JellyfinController : ControllerBase
             return BadRequest(new { Error = "Path is required" });
         }
 
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
         var item = _libraryManager.RootFolder
-            .GetRecursiveChildren(i => !string.IsNullOrEmpty(i.Path) && i.Path.Equals(path, StringComparison.OrdinalIgnoreCase))
+            .GetRecursiveChildren(i => !string.IsNullOrEmpty(i.Path) && i.Path.Equals(path, pathComparison))
             .FirstOrDefault();
 
         if (item == null)

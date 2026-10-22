@@ -194,6 +194,30 @@ if (refreshController.GetLibraryByPath("/movies/Film.mkv") is not OkObjectResult
     throw new InvalidOperationException("Library path matching should require a directory boundary");
 }
 
+if (OperatingSystem.IsLinux())
+{
+    libraryManagerProxy.Root.Children =
+    [
+        new Movie { Id = Guid.NewGuid(), Name = "Uppercase", Path = "/movies/Film.mkv" },
+        new Movie { Id = Guid.NewGuid(), Name = "Lowercase", Path = "/movies/film.mkv" }
+    ];
+    var uppercaseItem = refreshController.GetItemByPath("/movies/Film.mkv") as OkObjectResult
+        ?? throw new InvalidOperationException("The uppercase Jellyfin path should resolve");
+    var lowercaseItem = refreshController.GetItemByPath("/movies/film.mkv") as OkObjectResult
+        ?? throw new InvalidOperationException("The lowercase Jellyfin path should resolve");
+    var uppercaseName = uppercaseItem.Value!.GetType().GetProperty("Name")!.GetValue(uppercaseItem.Value);
+    var lowercaseName = lowercaseItem.Value!.GetType().GetProperty("Name")!.GetValue(lowercaseItem.Value);
+    if (!Equals(uppercaseName, "Uppercase") || !Equals(lowercaseName, "Lowercase"))
+    {
+        throw new InvalidOperationException("Linux item path lookup should distinguish case-sensitive paths");
+    }
+    libraryManagerProxy.Root.Children =
+    [
+        new Movie { Id = Guid.Parse("af147cdc-8ed9-4c3e-b7b1-c776c875264b"), Name = "In library", Path = "/movies/In library.mkv" },
+        new Movie { Id = Guid.Parse("3300f506-cb7c-4660-8d03-4d504c5bcbd6"), Name = "Sibling", Path = "/movies-old/Sibling.mkv" }
+    ];
+}
+
 if (refreshController.GetUnidentifiableItems("stale-library-id") is not NotFoundObjectResult)
 {
     throw new InvalidOperationException("An unknown library ID should return not found");
