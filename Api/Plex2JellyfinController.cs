@@ -2,6 +2,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -22,17 +23,20 @@ public class Plex2JellyfinController : ControllerBase
 
     private readonly ILibraryManager _libraryManager;
     private readonly ISessionManager _sessionManager;
+    private readonly ITaskManager _taskManager;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<Plex2JellyfinController> _logger;
 
     public Plex2JellyfinController(
         ILibraryManager libraryManager,
         ISessionManager sessionManager,
+        ITaskManager taskManager,
         IHttpClientFactory httpClientFactory,
         ILogger<Plex2JellyfinController> logger)
     {
         _libraryManager = libraryManager;
         _sessionManager = sessionManager;
+        _taskManager = taskManager;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -286,10 +290,20 @@ public class Plex2JellyfinController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetActiveScans()
     {
+        var scans = _taskManager.ScheduledTasks
+            .Where(worker => worker.ScheduledTask.Key == "RefreshLibrary" && worker.State == TaskState.Running)
+            .Select(worker => new
+            {
+                TaskId = worker.Id.ToString(),
+                Name = worker.Name,
+                ProgressPercentage = worker.CurrentProgress
+            })
+            .ToArray();
+
         return Ok(new
         {
-            ActiveScanCount = 0,
-            Scans = Array.Empty<object>()
+            ActiveScanCount = scans.Length,
+            Scans = scans
         });
     }
 
