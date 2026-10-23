@@ -49,9 +49,9 @@ public class EventForwarder : IHostedService, IDisposable
         if (config?.EnableEventForwarding != true)
         {
             _logger.LogInformation("Event forwarding is disabled");
-            return Task.CompletedTask;
         }
 
+        // ponytail: Keep subscriptions and four workers alive while disabled; handlers check current config. Tie worker lifetime to config changes if four idle tasks become costly.
         var queue = new ForwardEventQueue();
         var workerCancellation = new CancellationTokenSource();
         _eventQueue = queue;
