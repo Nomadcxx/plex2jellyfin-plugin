@@ -24,6 +24,7 @@ using Plex2Jellyfin.Plugin.EventHandlers;
 
 foreach (var actionName in new[]
 {
+    nameof(Plex2JellyfinController.GetActivePlayback),
     nameof(Plex2JellyfinController.RefreshPath),
     nameof(Plex2JellyfinController.PauseScanning),
     nameof(Plex2JellyfinController.ResumeScanning),
