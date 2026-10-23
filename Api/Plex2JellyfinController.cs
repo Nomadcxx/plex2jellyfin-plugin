@@ -49,6 +49,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpPost("refresh-path")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
