@@ -251,6 +251,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpGet("item-by-path")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult GetItemByPath([FromQuery] string path)
@@ -276,6 +277,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpGet("library-by-path")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult GetLibraryByPath([FromQuery] string path)
@@ -363,6 +365,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpGet("unidentifiable")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetUnidentifiableItems([FromQuery] string? libraryId = null)
     {
