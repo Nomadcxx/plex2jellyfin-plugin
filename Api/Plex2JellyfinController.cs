@@ -402,6 +402,7 @@ public class Plex2JellyfinController : ControllerBase
     }
 
     [HttpGet("active-playback")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetActivePlayback()
     {
