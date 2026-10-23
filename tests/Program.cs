@@ -82,7 +82,7 @@ typeof(BasePlugin<PluginConfiguration>)
     .GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!
     .SetValue(plugin, new PluginConfiguration
     {
-        EnableEventForwarding = true,
+        EnableEventForwarding = false,
         ForwardLibraryEvents = false,
         ForwardPlaybackEvents = false
     });
@@ -103,7 +103,27 @@ if (eventLibraryProxy.ItemAddedHandler is null || eventLibraryProxy.ItemRemovedH
     eventLibraryProxy.ItemUpdatedHandler is null || eventSessionProxy.PlaybackStartHandler is null ||
     eventSessionProxy.PlaybackStoppedHandler is null || eventSessionProxy.PlaybackProgressHandler is null)
 {
-    throw new InvalidOperationException("Event categories should remain subscribed so settings can change at runtime");
+    throw new InvalidOperationException("Event categories should remain subscribed when forwarding starts disabled");
+}
+
+typeof(BasePlugin<PluginConfiguration>)
+    .GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!
+    .SetValue(plugin, new PluginConfiguration
+    {
+        EnableEventForwarding = true,
+        ForwardLibraryEvents = true,
+        ForwardPlaybackEvents = true
+    });
+var runtimeEventPolicy = typeof(EventForwarder).GetMethod(
+    "ShouldForwardEvent",
+    BindingFlags.Static | BindingFlags.NonPublic,
+    binder: null,
+    types: [typeof(string)],
+    modifiers: null)
+    ?? throw new InvalidOperationException("EventForwarder should read the current master setting at event time");
+if (!(bool)runtimeEventPolicy.Invoke(null, ["ItemAdded"])! || !(bool)runtimeEventPolicy.Invoke(null, ["PlaybackStart"])!)
+{
+    throw new InvalidOperationException("Enabling forwarding after startup should allow library and playback events");
 }
 await eventForwarder.StopAsync(CancellationToken.None);
 
